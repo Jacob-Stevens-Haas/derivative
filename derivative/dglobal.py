@@ -198,6 +198,9 @@ class Kalman(Derivative):
 
         Args:
             alpha (float): Ratio of measurement error variance to assumed process variance.
+
+        Attributes:
+            smoothed_x_ (np.ndarray): The smoothed coordinate values that also come from calculating derivative.
         """
         self._t = None
         self._x = None
@@ -235,5 +238,6 @@ class Kalman(Derivative):
 
     def compute_for(self, t, x, indices):
         self._global(t, x, self.alpha)
+        self.smoothed_x_ = self._x_hat
         for i in indices:
             yield self._xdot_hat[i]
