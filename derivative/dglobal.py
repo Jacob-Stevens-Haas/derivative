@@ -1,3 +1,5 @@
+import warnings
+
 from functools import partialmethod
 from .differentiation import Derivative, register
 from .utils import deriv, integ, _memoize_arrays
@@ -192,7 +194,7 @@ class TrendFiltered(Derivative):
 
 @register("kalman")
 class Kalman(Derivative):
-    def __init__(self, alpha = 1):
+    def __init__(self, alpha = 1, meas_var = None):
         """ Fit the derivative assuming that given data are noisy measurements
 
         The Kalman smoother is the maximum likelihood estimator (MLE) for a process whose derivative obeys a Brownian
@@ -209,12 +211,63 @@ class Kalman(Derivative):
 
         Args:
             alpha (float): Ratio of measurement error variance to assumed process variance.
+            meas_var (float): Measurement noise variance.  Used in heuristic for alpha,
+                if alpha is None.
         """
         self.alpha = alpha
+        self.meas_var = meas_var
+
+    @staticmethod
+    def _heuristic_alpha(
+        z: np.ndarray,
+        times: np.ndarray,
+        meas_var: int | float = None,
+        max_alpha: int | float = 1e3,
+        max_trials: int = 10
+    ):
+        """Calculate the heuristic value of the Kalman parameter
+
+        Heuristic does sometimes give negative or very large values due to
+        limited data or short timesteps.  If it fails, it tries again,
+        thinning the data by taking larger timesteps.
+
+        Only works on data with equidistant
+
+        Args:
+            z: measurement data, each with time as the 0th axis and coordinate as
+                the 1st axis
+            times: the times of observation for all the trajectories.
+            meas_var: measurement variance, if known.
+            max_alpha: maximum alpha permissible.
+            max_trials: number of attempts to find a useful heuristic.
+        
+        Returns:
+            estimated coefficient of smoothness regularizer in kalman smoothing.
+        """
+        if meas_var is not None:
+            max_trials = 10
+            for attempt in range(max_trials):
+                thinned_trajectory = z[::attempt + 1]
+                diff = thinned_trajectory[1:] - thinned_trajectory[:-1] 
+                obs_variance = (diff ** 2).mean(axis=0)
+                dt = (times[1] - times[0]) * (attempt + 1)
+                t_exponent = dt ** 3 / 3
+                scaled_obs_variance = (obs_variance - 2 * meas_var) / t_exponent
+                scaled_obs_variance = scaled_obs_variance
+                result = meas_var / scaled_obs_variance
+                if result > 0 and result < max_alpha:
+                    return result
+            else:
+                warnings.warn(
+                    "Unable to determine optimal parameters.  Perhaps your measurement variance estimate is too high?  If not, try collecting data for a longer interval with a larger timestep"
+                )
+        return .05
 
 
     @_memoize_arrays(1)
-    def _global(self, t, z, alpha):
+    def _global(self, t, z, alpha, meas_var):
+        if alpha is None:
+            alpha = self._heuristic_alpha(z, t, meas_var)
         delta_times = t[1:]-t[:-1]
         n = len(t)
         Qs = [np.array([[dt, dt**2/2], [dt**2/2, dt**3/3]]) for dt in delta_times]
@@ -237,20 +290,20 @@ class Kalman(Derivative):
         return x_hat, x_dot_hat
 
     def compute(self, t, x, i):
-        x_dot_hat = self._global(t, x, self.alpha)[1]
+        x_dot_hat = self._global(t, x, self.alpha, self.meas_var)[1]
         return x_dot_hat[i]
 
     def compute_for(self, t, x, indices):
-        x_dot_hat = self._global(t, x, self.alpha)[1]
+        x_dot_hat = self._global(t, x, self.alpha, self.meas_var)[1]
         for i in indices:
             yield x_dot_hat[i]
 
     def compute_x(self, t, x, i):
-        x_hat = self._global(t, x, self.alpha)[0]
+        x_hat = self._global(t, x, self.alpha, self.meas_var)[0]
         return x_hat[i]
 
     def compute_x_for(self, t, x, indices):
-        x_hat = self._global(t, x, self.alpha)[0]
+        x_hat = self._global(t, x, self.alpha, self.meas_var)[0]
         for i in indices:
             yield x_hat[i]
 
