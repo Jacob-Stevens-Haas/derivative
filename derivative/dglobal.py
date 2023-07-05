@@ -231,7 +231,7 @@ class Kalman(Derivative):
         limited data or short timesteps.  If it fails, it tries again,
         thinning the data by taking larger timesteps.
 
-        Only works on data with equidistant
+        Only works on data with equidistant timesteps
 
         Args:
             z: measurement data, each with time as the 0th axis and coordinate as
@@ -245,16 +245,15 @@ class Kalman(Derivative):
             estimated coefficient of smoothness regularizer in kalman smoothing.
         """
         if meas_var is not None:
-            max_trials = 10
             for attempt in range(max_trials):
                 thinned_trajectory = z[::attempt + 1]
-                diff = thinned_trajectory[1:] - thinned_trajectory[:-1] 
-                obs_variance = (diff ** 2).mean(axis=0)
+                diff = thinned_trajectory[1:] - thinned_trajectory[:-1]
+                diff_msq = (diff ** 2).mean(axis=0)
                 dt = (times[1] - times[0]) * (attempt + 1)
                 t_exponent = dt ** 3 / 3
-                scaled_obs_variance = (obs_variance - 2 * meas_var) / t_exponent
-                scaled_obs_variance = scaled_obs_variance
-                result = meas_var / scaled_obs_variance
+                remaining_step_variance = diff_msq - 2 * meas_var
+                process_variance = remaining_step_variance / t_exponent
+                result = meas_var / process_variance
                 if result > 0 and result < max_alpha:
                     return result
             else:
