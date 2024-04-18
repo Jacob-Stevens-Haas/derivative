@@ -1,6 +1,7 @@
 # Test the implementation of the interface for each method
 import derivative
-from derivative import dxdt, methods
+from derivative import dxdt, smooth_x, methods
+from derivative.differentiation import _gen_method
 import pytest
 import numpy as np
 import inspect
@@ -58,6 +59,15 @@ def test_one():
         assert np.all(data == dxdt(data, one, kind='finite_difference', k=1))
         # savitzky_golay
         assert np.all(data == dxdt(data, one, kind='savitzky_golay', order=1, left=2, right=2, iwindow=True))
+
+
+def test_axis_arg():
+    arr = np.ones((2, 2, 2))
+    t = np.array([0, .1])
+    dxdt(arr, t, kind="finite_difference", axis=2)
+    smooth_x(arr, t, kind="finite_difference", axis=2)
+    method = _gen_method(arr, t, "finite_difference", axis=2)
+    method
 
 
 def test_small():
